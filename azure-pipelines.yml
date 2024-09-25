@@ -1,0 +1,53 @@
+###trigger:
+##- $(Build.SourceBranchName)
+trigger: 
+  branches: 
+    exclude: 
+      - dev   # Disable auto-trigger for the QA branch 
+      - main 
+
+pr: 
+  branches: 
+    include: 
+      - qa  # Enable PR trigger for QA branch
+      - test
+pool:
+  vmImage: 'ubuntu-latest'
+ 
+steps:
+- task: UseNode@1
+  inputs:
+    versionSpec: '18.x'
+  displayName: 'Install Node.js'
+
+- script: npm install
+  displayName: 'Install dependencies'
+
+- script: |
+    echo "$(Build.SourcesDirectory)"
+    echo "$(Build.SourceBranchName)"
+    ls -lrt
+    docker buildx build -t my-nodejs:latest 2048-game
+    docker tag my-nodejs:latest myfirstproject.azurecr.io/images/my-nodejs-$(Build.SourceBranchName):latest
+    docker login myfirstproject.azurecr.io -u $(DOCKER_USERNAME) -p $(DOCKER_PASSWORD)
+    docker push myfirstproject.azurecr.io/images/my-nodejs-$(Build.SourceBranchName):latest
+  displayName: 'Build and Push Docker Image'
+  env:
+    DOCKER_USERNAME: $(DOCKER_USERNAME)
+    DOCKER_PASSWORD: $(DOCKER_PASSWORD)
+  
+- task: UsePythonVersion@0
+  inputs:
+      versionSpec: '3.x'
+      addToPath: true
+ 
+- script: |
+      python -m pip install --upgrade pip
+      pip install kubernetes==30.1.0
+- task: KubernetesManifest@1
+  inputs:
+    action: 'deploy'
+    connectionType: 'kubernetesServiceConnection'
+    kubernetesServiceConnection: 'kubernetes_connect'
+    namespace: $(Build.SourceBranchName)
+    manifests: '01_kubernetes_aks/app-deploy-$(Build.SourceBranchName).yaml'
